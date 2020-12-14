@@ -14,12 +14,16 @@ import ClockKit
 #endif
 
 // swiftlint:disable cyclomatic_complexity type_body_length file_length
-public enum ComplicationGroup: String {
+public enum ComplicationGroup: String, Comparable {
     case circularSmall
     case extraLarge
     case graphic
     case modular
     case utilitarian
+
+    public static func < (lhs: ComplicationGroup, rhs: ComplicationGroup) -> Bool {
+        lhs.name < rhs.name
+    }
 
     public var name: String {
         switch self {
@@ -71,7 +75,7 @@ public enum ComplicationGroup: String {
 
 extension ComplicationGroup: CaseIterable {}
 
-public enum ComplicationGroupMember: String {
+public enum ComplicationGroupMember: String, Comparable {
     case circularSmall
     case extraLarge
     case graphicBezel
@@ -83,6 +87,10 @@ public enum ComplicationGroupMember: String {
     case utilitarianLarge
     case utilitarianSmall
     case utilitarianSmallFlat
+
+    public static func < (lhs: ComplicationGroupMember, rhs: ComplicationGroupMember) -> Bool {
+        lhs.name < rhs.name
+    }
 
     public init(name: String) {
         switch name {
@@ -171,6 +179,16 @@ public enum ComplicationGroupMember: String {
             return .utilitarianSmallFlat
         }
     }
+
+    @available(watchOS 7.0, *)
+    public var placeholderComplicationDescriptor: CLKComplicationDescriptor {
+        CLKComplicationDescriptor(
+            identifier: "placeholder-" + rawValue,
+            displayName: L10n.Watch.placeholderComplicationName,
+            supportedFamilies: [ family ]
+        )
+    }
+
     #endif
 
 //    #if os(iOS)
@@ -332,12 +350,12 @@ public enum ComplicationGroupMember: String {
     }
 
     #if os(watchOS)
-    public var errorTemplate: CLKComplicationTemplate? {
-        MaterialDesignIcons.register()
-
+    // swiftlint:disable:next function_body_length
+    public func fallbackTemplate(for identifier: String?) -> CLKComplicationTemplate {
         let logoImage = UIImage(named: "RoundLogo")!
         let templateImage = UIImage(named: "TemplateLogo")!
-        let hassColor = UIColor(red: 0.25, green: 0.74, blue: 0.96, alpha: 1.0)
+        let hassColor = Constants.tintColor
+        let isPlaceholder = identifier?.starts(with: "placeholder") == true
 
         switch self {
         case .circularSmall:
@@ -355,7 +373,7 @@ public enum ComplicationGroupMember: String {
             let imageTemplate = CLKComplicationTemplateGraphicCircularImage()
             imageTemplate.imageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
             template.circularTemplate = imageTemplate
-            template.textProvider = CLKSimpleTextProvider(text: "??")
+            template.textProvider = CLKSimpleTextProvider(text: isPlaceholder ? "HA" : "??")
             return template
         case .graphicCircular:
             let template = CLKComplicationTemplateGraphicCircularImage()
@@ -366,46 +384,90 @@ public enum ComplicationGroupMember: String {
             template.imageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
             return template
         case .graphicRectangular:
-            let template = CLKComplicationTemplateGraphicRectangularStandardBody()
-            template.headerImageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
-            template.headerTextProvider = CLKSimpleTextProvider(text: "Not configured")
-            let desc = ComplicationTemplate.GraphicRectangularStandardBody.description
-            template.body1TextProvider = CLKSimpleTextProvider(text: desc)
-            template.body2TextProvider = CLKSimpleTextProvider(text: "has not been configured")
-            return template
+            if isPlaceholder {
+                if #available(watchOS 7, *) {
+                    let template = CLKComplicationTemplateGraphicRectangularFullImage()
+                    template.imageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
+                    return template
+                } else {
+                    let template = CLKComplicationTemplateGraphicRectangularLargeImage()
+                    template.textProvider = CLKSimpleTextProvider(text: "Home Assistant")
+                    template.imageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
+                    return template
+                }
+            } else {
+                let template = CLKComplicationTemplateGraphicRectangularStandardBody()
+                template.headerImageProvider = CLKFullColorImageProvider(fullColorImage: logoImage)
+                template.headerTextProvider = CLKSimpleTextProvider(text: "Not configured")
+                let desc = ComplicationTemplate.GraphicRectangularStandardBody.description
+                template.body1TextProvider = CLKSimpleTextProvider(text: desc)
+                template.body2TextProvider = CLKSimpleTextProvider(text: "has not been configured")
+                return template
+            }
         case .modularLarge:
-            let template = CLKComplicationTemplateModularLargeTallBody()
-            template.headerTextProvider = CLKSimpleTextProvider(text: "Not configured")
-            let desc = ComplicationTemplate.GraphicRectangularStandardBody.description
-            template.bodyTextProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
-            template.tintColor = hassColor
-            return template
+            if isPlaceholder {
+                let template = CLKComplicationTemplateModularLargeStandardBody()
+                template.headerTextProvider = CLKSimpleTextProvider(text: "Home Assistant")
+                template.body1TextProvider = CLKSimpleTextProvider(text: "Home Assistant")
+                template.tintColor = hassColor
+                return template
+            } else {
+                let template = CLKComplicationTemplateModularLargeTallBody()
+                template.headerTextProvider = CLKSimpleTextProvider(text: "Not configured")
+                let desc = ComplicationTemplate.GraphicRectangularStandardBody.description
+                template.bodyTextProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
+                template.tintColor = hassColor
+                return template
+            }
         case .modularSmall:
-            let template = CLKComplicationTemplateModularSmallStackImage()
-            template.line1ImageProvider = CLKImageProvider(onePieceImage: templateImage)
-            let desc = ComplicationTemplate.ModularSmallStackImage.description
-            template.line2TextProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
-            template.tintColor = hassColor
-            return template
+            if isPlaceholder {
+                let template = CLKComplicationTemplateModularSmallSimpleImage()
+                template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
+                template.tintColor = hassColor
+                return template
+            } else {
+                let template = CLKComplicationTemplateModularSmallStackImage()
+                template.line1ImageProvider = CLKImageProvider(onePieceImage: templateImage)
+                let desc = ComplicationTemplate.ModularSmallStackImage.description
+                template.line2TextProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
+                template.tintColor = hassColor
+                return template
+            }
         case .utilitarianLarge:
-            let template = CLKComplicationTemplateUtilitarianLargeFlat()
-            template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
-            let desc = ComplicationTemplate.UtilitarianLargeFlat.description
-            template.textProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
-            template.tintColor = hassColor
-            return template
+            if isPlaceholder {
+                let template = CLKComplicationTemplateUtilitarianLargeFlat()
+                template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
+                template.textProvider = CLKSimpleTextProvider(text: "Home Assistant")
+                template.tintColor = hassColor
+                return template
+            } else {
+                let template = CLKComplicationTemplateUtilitarianLargeFlat()
+                template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
+                let desc = ComplicationTemplate.UtilitarianLargeFlat.description
+                template.textProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
+                template.tintColor = hassColor
+                return template
+            }
         case .utilitarianSmall:
             let template = CLKComplicationTemplateUtilitarianSmallSquare()
             template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
             template.tintColor = hassColor
             return template
         case .utilitarianSmallFlat:
-            let template = CLKComplicationTemplateUtilitarianSmallFlat()
-            template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
-            let desc = ComplicationTemplate.UtilitarianSmallFlat.description
-            template.textProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
-            template.tintColor = hassColor
-            return template
+            if isPlaceholder {
+                let template = CLKComplicationTemplateUtilitarianSmallFlat()
+                template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
+                template.textProvider = CLKSimpleTextProvider(text: "HA")
+                template.tintColor = hassColor
+                return template
+            } else {
+                let template = CLKComplicationTemplateUtilitarianSmallFlat()
+                template.imageProvider = CLKImageProvider(onePieceImage: templateImage)
+                let desc = ComplicationTemplate.UtilitarianSmallFlat.description
+                template.textProvider = CLKSimpleTextProvider(text: "\(desc) has not been configured in the app")
+                template.tintColor = hassColor
+                return template
+            }
         }
     }
     #endif
@@ -991,206 +1053,151 @@ public enum ComplicationTemplate: String {
 
     // https://gist.github.com/robbiet480/2a38d499323cb964d47b2f5d8004694a
     public var imageSize: CGSize? {
-        // Template: Device Size: Image Size @1x
-        let imageSizes: [String: [Int: CGSize]] = [
-            "CircularSmallRingImage": [
+        // Template: Device Size: Image Size @2x in pixels -- odd format, but what Apple's docs use
+        let imageSizes: [Self: [Int: CGSize]] = [
+            .CircularSmallRingImage: [
                 38: CGSize(width: 40, height: 40),
                 40: CGSize(width: 44, height: 44),
                 42: CGSize(width: 44, height: 44),
                 44: CGSize(width: 48, height: 48)
             ],
-            "CircularSmallSimpleImage": [
+            .CircularSmallSimpleImage: [
                 38: CGSize(width: 32, height: 32),
                 40: CGSize(width: 36, height: 36),
                 42: CGSize(width: 36, height: 36),
                 44: CGSize(width: 40, height: 40)
             ],
-            "CircularSmallStackImage": [
+            .CircularSmallStackImage: [
                 38: CGSize(width: 32, height: 14),
                 40: CGSize(width: 34, height: 16),
                 42: CGSize(width: 34, height: 16),
                 44: CGSize(width: 38, height: 18)
             ],
-            "ModularSmallRingImage": [
+            .ModularSmallRingImage: [
                 38: CGSize(width: 36, height: 36),
                 40: CGSize(width: 38, height: 38),
                 42: CGSize(width: 38, height: 38),
                 44: CGSize(width: 42, height: 42)
             ],
-            "ModularSmallSimpleImage": [
+            .ModularSmallSimpleImage: [
                 38: CGSize(width: 52, height: 52),
                 40: CGSize(width: 58, height: 58),
                 42: CGSize(width: 58, height: 58),
                 44: CGSize(width: 64, height: 64)
             ],
-            "ModularSmallStackImage": [
+            .ModularSmallStackImage: [
                 38: CGSize(width: 52, height: 28),
                 40: CGSize(width: 58, height: 30),
                 42: CGSize(width: 58, height: 30),
                 44: CGSize(width: 64, height: 34)
             ],
-            "ModularLargeColumnsImage": [
+            .ModularLargeColumns: [
                 38: CGSize(width: 64, height: 22),
                 40: CGSize(width: 74, height: 24),
                 42: CGSize(width: 74, height: 24),
                 44: CGSize(width: 84, height: 28)
             ],
-            "ModularLargeStandardBody": [
+            .ModularLargeStandardBody: [
                 38: CGSize(width: 64, height: 22),
                 40: CGSize(width: 74, height: 24),
                 42: CGSize(width: 74, height: 24),
                 44: CGSize(width: 84, height: 28)
             ],
-            "ModularLargeTable": [
+            .ModularLargeTable: [
                 38: CGSize(width: 64, height: 22),
                 40: CGSize(width: 74, height: 24),
                 42: CGSize(width: 74, height: 24),
                 44: CGSize(width: 84, height: 28)
             ],
-            "UtilitarianSmallFlatImage": [
+            .UtilitarianSmallFlat: [
                 38: CGSize(width: 42, height: 18),
                 40: CGSize(width: 44, height: 20),
-                42: CGSize(width: 44, height: 20)
-                // 44: CGSize(width: 20, height: 20) -- 44mm is marked "N/A" in HIG
+                42: CGSize(width: 44, height: 20),
+                44: CGSize(width: 49, height: 22)
             ],
-            "UtilitarianSmallRingImage": [
+            .UtilitarianSmallRingImage: [
                 38: CGSize(width: 28, height: 28),
                 40: CGSize(width: 28, height: 28),
                 42: CGSize(width: 28, height: 28),
                 44: CGSize(width: 32, height: 32)
             ],
-            "UtilitarianSmallSquareImage": [
+            .UtilitarianSmallSquare: [
                 38: CGSize(width: 40, height: 40),
                 40: CGSize(width: 44, height: 44),
                 42: CGSize(width: 44, height: 44),
                 44: CGSize(width: 50, height: 50)
             ],
-            "UtilitarianLargeFlatImage": [
+            .UtilitarianLargeFlat: [
                 38: CGSize(width: 42, height: 18),
                 40: CGSize(width: 44, height: 20),
-                42: CGSize(width: 44, height: 20)
-                // 44: CGSize(width: 20, height: 20) -- 44mm is marked "N/A" in HIG
+                42: CGSize(width: 44, height: 20),
+                44: CGSize(width: 49, height: 22)
             ],
-            "ExtraLargeRingImage": [
+            .ExtraLargeRingImage: [
                 38: CGSize(width: 126, height: 126),
                 40: CGSize(width: 133, height: 133),
                 42: CGSize(width: 133, height: 133),
                 44: CGSize(width: 146, height: 146)
             ],
-            "ExtraLargeSimpleImage": [
+            .ExtraLargeSimpleImage: [
                 38: CGSize(width: 182, height: 182),
                 40: CGSize(width: 203, height: 203),
                 42: CGSize(width: 203, height: 203),
                 44: CGSize(width: 224, height: 224)
             ],
-            "ExtraLargeStackImage": [
+            .ExtraLargeStackImage: [
                 38: CGSize(width: 156, height: 84),
                 40: CGSize(width: 174, height: 90),
                 42: CGSize(width: 174, height: 90),
                 44: CGSize(width: 192, height: 102)
             ],
-            "GraphicCornerCircularImage": [
+            .GraphicCornerCircularImage: [
                 40: CGSize(width: 64, height: 64),
                 44: CGSize(width: 72, height: 72)
             ],
-            "GraphicCornerGaugeImage": [
+            .GraphicCornerGaugeImage: [
                 40: CGSize(width: 40, height: 40),
                 44: CGSize(width: 44, height: 44)
             ],
-            "GraphicCornerTextImage": [
+            .GraphicCornerTextImage: [
                 40: CGSize(width: 40, height: 40),
                 44: CGSize(width: 44, height: 44)
             ],
-            "GraphicCircularImage": [
+            .GraphicCircularImage: [
                 40: CGSize(width: 84, height: 84),
                 44: CGSize(width: 94, height: 94)
             ],
-            "GraphicCircularClosedGaugeImage": [
-                40: CGSize(width: 54, height: 54),
-                44: CGSize(width: 62, height: 62)
+            .GraphicCircularClosedGaugeImage: [
+                40: CGSize(width: 28, height: 28),
+                44: CGSize(width: 32, height: 32)
             ],
-            "GraphicCircularOpenGaugeImage": [
-                40: CGSize(width: 22, height: 22),
-                44: CGSize(width: 24, height: 24)
-            ],
-            "GraphicRectangularLargeImage": [
-                40: CGSize(width: 300, height: 94),
-                44: CGSize(width: 342, height: 108)
-            ],
-            "GraphicRectangularStandardBody": [
-                40: CGSize(width: 24, height: 24),
-                44: CGSize(width: 27, height: 27)
-            ],
-            "GraphicRectangularTextGauge": [
-                40: CGSize(width: 24, height: 24),
-                44: CGSize(width: 27, height: 27)
-            ]
-        ]
-
-        let deviceSize = WKInterfaceDevice.currentResolution().rawValue
-
-        if let sizeDict = imageSizes[self.rawValue], let size = sizeDict[deviceSize] {
-            return size
-        }
-
-        return nil
-    }
-
-    public var placeholderImageSize: CGSize? {
-        // Template: Device Size: Image Size @1x
-        let imageSizes: [String: [Int: CGSize]] = [
-            "circularSmall": [
-                38: CGSize(width: 32, height: 32),
-                40: CGSize(width: 36, height: 36),
-                42: CGSize(width: 36, height: 36),
-                44: CGSize(width: 40, height: 40)
-            ],
-            "extraLarge": [
-                38: CGSize(width: 156, height: 156),
-                40: CGSize(width: 174, height: 174),
-                42: CGSize(width: 174, height: 174),
-                44: CGSize(width: 192, height: 192)
-            ],
-            "modular": [
-                38: CGSize(width: 52, height: 52),
-                40: CGSize(width: 58, height: 58),
-                42: CGSize(width: 58, height: 58),
-                44: CGSize(width: 64, height: 64)
-            ],
-            "utilitarian": [
-                38: CGSize(width: 40, height: 40),
+            .GraphicCircularOpenGaugeImage: [
                 40: CGSize(width: 44, height: 44),
-                42: CGSize(width: 44, height: 44),
-                44: CGSize(width: 50, height: 50)
+                44: CGSize(width: 48, height: 48)
             ],
-            "graphicCorner": [
-                40: CGSize(width: 40, height: 40),
-                44: CGSize(width: 44, height: 44)
-            ],
-            "graphicCircular": [
+            .GraphicBezelCircularText: [
                 40: CGSize(width: 84, height: 84),
                 44: CGSize(width: 94, height: 94)
             ],
-            "graphicBezel": [
-                40: CGSize(width: 84, height: 84),
-                44: CGSize(width: 94, height: 94)
-            ],
-            "graphicRectangular": [
+            .GraphicRectangularLargeImage: [
                 40: CGSize(width: 300, height: 94),
                 44: CGSize(width: 342, height: 108)
+            ],
+            .GraphicRectangularStandardBody: [
+                40: CGSize(width: 48, height: 48),
+                44: CGSize(width: 54, height: 54)
+            ],
+            .GraphicRectangularTextGauge: [
+                40: CGSize(width: 24, height: 24),
+                44: CGSize(width: 27, height: 27)
             ]
         ]
 
         let deviceSize = WKInterfaceDevice.currentResolution().rawValue
 
-        var key: String = self.group.rawValue
-
-        if self.group == .graphic {
-            key = self.groupMember.rawValue
-        }
-
-        if let sizeDict = imageSizes[key], let size = sizeDict[deviceSize] {
-            return size
+        if let sizeDict = imageSizes[self], let size = sizeDict[deviceSize] ?? sizeDict[40] {
+            // image sizes are in pixels at 2x, so we need to downsize to points
+            return CGSize(width: size.width / 2.0, height: size.height / 2.0)
         }
 
         return nil
@@ -1253,16 +1260,16 @@ public enum ComplicationTemplate: String {
              .GraphicCornerTextImage, .GraphicRectangularLargeImage, .GraphicRectangularStandardBody,
              .GraphicRectangularTextGauge, .ModularLargeColumns, .ModularLargeStandardBody, .ModularLargeTable,
              .ModularSmallRingImage, .ModularSmallSimpleImage, .ModularSmallStackImage, .UtilitarianLargeFlat,
-             .UtilitarianSmallFlat, .UtilitarianSmallRingImage, .UtilitarianSmallSquare:
+             .UtilitarianSmallFlat, .UtilitarianSmallRingImage, .UtilitarianSmallSquare, .GraphicBezelCircularText:
             return true
         default:
             return false
         }
     }
 
-    public var supportsRow2Alignment: Bool {
+    public var supportsColumn2Alignment: Bool {
         switch self {
-        case .ModularLargeColumns, .ModularLargeTable, .ExtraLargeColumnsText:
+        case .ModularLargeColumns, .ModularLargeTable, .ExtraLargeColumnsText, .ModularSmallColumnsText:
             return true
         default:
             return false

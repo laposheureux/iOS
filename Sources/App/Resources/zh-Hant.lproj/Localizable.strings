@@ -889,3 +889,16 @@
 "share_extension.error.title" = "無法傳送";
 "settings_sensors.periodic_update.description_mac" = "開啟後、傳感器將會依設定於 App 開啟時持續更新，部分感測器更新頻率將更密集。";
 "settings_details.notifications.sounds.import_mac_instructions" = "新增自訂音效至音效資料夾以於通知中使用。於呼叫服務中、使用音效檔案檔名作為音效設定值。";
+"watch.configurator.rows.column_2_alignment.title" = "第 2 列對齊";
+"watch.configurator.rows.column_2_alignment.options.leading" = "靠左對齊";
+"watch.configurator.rows.column_2_alignment.options.trailing" = "靠右對齊";
+"watch.configurator.preview_error.not_number" = "預期為數字。但收到%1$@：'%2$@'";
+"watch.configurator.preview_error.out_of_range" = "預期為介於 0.0 至 1.0 間的數字。但收到 %1$f";
+"watch.configurator.new.title" = "新增複雜功能";
+"watch.configurator.new.multiple_complication_info" = "使用現有相同類型新增另一個複雜功能需要 watchOS 7 或更新版本。";
+"watch.configurator.delete.button" = "刪除複雜功能";
+"watch.configurator.delete.title" = "刪除複雜功能？";
+"watch.configurator.delete.message" = "確定要刪除複雜功能？無法還原。";
+"watch.configurator.list.description" = "使用新增按鈕新增複雜功能，可以於 Apple Watch 或 Watch App 中選擇。";
+"watch.configurator.list.learn_more" = "了解更多";
+"watch.configurator.rows.display_name.title" = "顯示名稱";

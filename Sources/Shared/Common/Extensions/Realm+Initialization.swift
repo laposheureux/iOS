@@ -75,9 +75,11 @@ extension Realm {
         // 10 - 2020-07-31 v2020.5 (added isServerControlled to Action)
         // 11 - 2020-08-12 v2020.5.2 (cleaning up duplicate NotificationCategory identifiers)
         // 12 - 2020-08-16 v2020.6 (mdi upgrade/migration to 5.x)
+        // 13 - 2020-10-17 v2020.7 (allow multiple complications)
+        // 14 - 2020-10-29 v2020.8 (complication privacy)
         let config = Realm.Configuration(
             fileURL: storeURL,
-            schemaVersion: 12,
+            schemaVersion: 14,
             migrationBlock: { migration, oldVersion in
                 Current.Log.info("migrating from \(oldVersion)")
                 if oldVersion < 9 {
@@ -135,6 +137,22 @@ extension Realm {
                         }
                     }
                 }
+
+                if oldVersion < 13 {
+                    migration.enumerateObjects(ofType: WatchComplication.className()) { _, newObject in
+                        // initially creating these with their old family name
+                        // this is so we migrate them to have identical names on both watch and phone, independently
+                        // since future objects are created with a UUID-based identifier, this won't be an issue
+                        // we also need to reference them by family for complications configured prior to watchOS 7
+                        newObject!["identifier"] = newObject!["rawFamily"]
+                    }
+                }
+
+                if oldVersion < 14 {
+                    migration.enumerateObjects(ofType: WatchComplication.className()) { _, newObject in
+                         newObject?["IsPublic"] = true
+                    }
+                }
             },
             deleteRealmIfMigrationNeeded: false
         )
@@ -142,7 +160,7 @@ extension Realm {
         do {
             return try Realm(configuration: config)
         } catch let error {
-            Current.logError?(error as NSError)
+            Current.crashReporter.logError(error as NSError)
 
             Realm.handleError(
                 message: error.localizedDescription,
@@ -199,7 +217,7 @@ extension Realm {
         message: String,
         error: Swift.Error
     ) {
-        Current.logError?(error as NSError)
+        Current.crashReporter.logError(error as NSError)
         Current.Log.error([message, error])
 
         #if os(iOS)

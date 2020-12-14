@@ -16,17 +16,14 @@ import Shared
 import PromiseKit
 
 class ExtensionDelegate: NSObject, WKExtensionDelegate {
-    // MARK: - Properties -
-
-    var urlIdentifier: String?
-    var bgTask: WKRefreshBackgroundTask?
-
     // MARK: Fileprivate
 
-    fileprivate var watchConnectivityTask: WKWatchConnectivityRefreshBackgroundTask? {
-        didSet {
-            oldValue?.setTaskCompletedWithSnapshot(false)
-        }
+    fileprivate var watchConnectivityBackgroundPromise: Guarantee<Void>
+    fileprivate var watchConnectivityBackgroundSeal: (()) -> Void
+
+    override init() {
+        (watchConnectivityBackgroundPromise, watchConnectivityBackgroundSeal) = Guarantee<Void>.pending()
+        super.init()
     }
 
     // MARK: - WKExtensionDelegate -
@@ -54,7 +51,7 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
         setupWatchCommunicator()
 
         // schedule the next background refresh
-        BackgroundRefreshScheduler.shared.schedule()
+        Current.backgroundRefreshScheduler.schedule().cauterize()
     }
 
     func applicationDidBecomeActive() {
@@ -70,7 +67,7 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
         // or when the user quits the application and it begins the transition to the background state.
         // Use this method to pause ongoing tasks, disable timers, etc.
         Current.Log.verbose("willResignActive")
-        BackgroundRefreshScheduler.shared.schedule()
+        Current.backgroundRefreshScheduler.schedule().cauterize()
     }
 
     func handle(_ backgroundTasks: Set<WKRefreshBackgroundTask>) {
@@ -82,20 +79,27 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
             case let backgroundTask as WKApplicationRefreshBackgroundTask:
                 // Be sure to complete the background task once you’re done.
                 Current.Log.verbose("WKWatchConnectivityRefreshBackgroundTask received")
-                BackgroundRefreshScheduler.shared.schedule()
-                self.updateComplications()
-                self.bgTask = backgroundTask
+
+                firstly {
+                    updateComplications()
+                }.then {
+                    Current.backgroundRefreshScheduler.schedule()
+                }.done {
+                    backgroundTask.setTaskCompletedWithSnapshot(false)
+                }
             case let snapshotTask as WKSnapshotRefreshBackgroundTask:
                 // Snapshot tasks have a unique completion call, make sure to set your expiration date
                 snapshotTask.setTaskCompleted(restoredDefaultState: true,
                                               estimatedSnapshotExpiration: Date.distantFuture, userInfo: nil)
             case let connectivityTask as WKWatchConnectivityRefreshBackgroundTask:
-                // Be sure to complete the connectivity task once you’re done.
-                watchConnectivityTask = connectivityTask
+                enqueueForCompletion(connectivityTask)
             case let urlSessionTask as WKURLSessionRefreshBackgroundTask:
                 // Be sure to complete the URL session task once you’re done.
-                Current.Log.verbose("Should rejoin URLSession! \(String(describing: urlIdentifier))")
-                self.bgTask = urlSessionTask
+                Current.webhooks.handleBackground(for: urlSessionTask.sessionIdentifier) {
+                    Current.backgroundRefreshScheduler.schedule().done {
+                        urlSessionTask.setTaskCompletedWithSnapshot(false)
+                    }
+                }
             case let relevantShortcutTask as WKRelevantShortcutRefreshBackgroundTask:
                 // Be sure to complete the relevant-shortcut task once you're done.
                 relevantShortcutTask.setTaskCompletedWithSnapshot(false)
@@ -111,12 +115,24 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
     // Triggered when a complication is tapped
     func handleUserActivity(_ userInfo: [AnyHashable: Any]?) {
+        let complication: WatchComplication?
 
-        if let date = userInfo?[CLKLaunchedTimelineEntryDateKey] as? Date {
+        if #available(watchOS 7, *),
+           let identifier = userInfo?[CLKLaunchedComplicationIdentifierKey] as? String,
+           identifier != CLKDefaultComplicationIdentifier {
+            complication = Current.realm().object(ofType: WatchComplication.self, forPrimaryKey: identifier)
+        } else if let date = userInfo?[CLKLaunchedTimelineEntryDateKey] as? Date,
+                  let clkFamily = date.complicationFamilyFromEncodedDate {
+            let family = ComplicationGroupMember(family: clkFamily)
+            complication = Current.realm().object(ofType: WatchComplication.self, forPrimaryKey: family.rawValue)
+        } else {
+            complication = nil
+        }
 
-            if let family = date.complicationFamilyFromEncodedDate {
-                Current.Log.verbose("\(family.description) complication opened app")
-            }
+        if let complication = complication {
+            Current.Log.info("launched for \(complication.identifier) of family \(complication.Family)")
+        } else {
+            Current.Log.verbose("unknown or no complication launched the app")
         }
     }
 
@@ -140,6 +156,8 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
         Communicator.shared.guaranteedMessageReceivedObservers.add { message in
             Current.Log.verbose("Received guaranteed message! \(message)")
+
+            self.endWatchConnectivityBackgroundTaskIfNecessary()
         }
 
         Communicator.shared.blobReceivedObservers.add { blob in
@@ -153,7 +171,7 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
 
             _ = HomeAssistantAPI.SyncWatchContext()
 
-            let realm = Realm.live()
+            let realm = Current.realm()
 
             if let connInfoData = context.content["connection_info"] as? Data {
                 let connInfo = try? JSONDecoder().decode(ConnectionInfo.self, from: connInfoData)
@@ -197,48 +215,54 @@ class ExtensionDelegate: NSObject, WKExtensionDelegate {
                     realm.delete(realm.objects(WatchComplication.self))
                     realm.add(complications, update: .all)
                 }
-
-                self.updateComplications()
-
-                CLKComplicationServer.sharedInstance().activeComplications?.forEach {
-                    CLKComplicationServer.sharedInstance().reloadTimeline(for: $0)
-                }
             }
 
-            self.endWatchConnectivityBackgroundTaskIfNecessary()
+            self.updateComplications().done {
+                self.endWatchConnectivityBackgroundTaskIfNecessary()
+            }
         }
 
         Communicator.shared.complicationInfoReceivedObservers.add { complicationInfo in
             Current.Log.verbose("Received complication info: \(complicationInfo)")
 
-            self.endWatchConnectivityBackgroundTaskIfNecessary()
+            self.updateComplications().done {
+                self.endWatchConnectivityBackgroundTaskIfNecessary()
+            }
+        }
+    }
+
+    private func enqueueForCompletion(_ task: WKWatchConnectivityRefreshBackgroundTask) {
+        DispatchQueue.main.async { [self] in
+            if Communicator.shared.hasPendingDataToBeReceived {
+                // wait for it to send the next set of data
+                watchConnectivityBackgroundPromise.done {
+                    task.setTaskCompletedWithSnapshot(false)
+                }
+            } else {
+                // nothing else to be received
+                task.setTaskCompletedWithSnapshot(false)
+            }
         }
     }
 
     private func endWatchConnectivityBackgroundTaskIfNecessary() {
-        // First check we're not expecting more data
-        guard !Communicator.shared.hasPendingDataToBeReceived else { return }
-        // And then end the task (if there is one!)
-        self.watchConnectivityTask?.setTaskCompletedWithSnapshot(false)
+        DispatchQueue.main.async { [self] in
+            guard !Communicator.shared.hasPendingDataToBeReceived else { return }
+
+            // complete the current one
+            watchConnectivityBackgroundSeal(())
+            // and set up a new one for the next chain of updates
+            (watchConnectivityBackgroundPromise, watchConnectivityBackgroundSeal) = Guarantee<Void>.pending()
+        }
     }
 
-    func updateComplications() {
-        let urlID = NSUUID().uuidString
-
-        self.urlIdentifier = urlID
-
-        let backgroundConfigObject = URLSessionConfiguration.background(withIdentifier: urlID)
-        backgroundConfigObject.sessionSendsLaunchEvents = true
-
-        guard let api = HomeAssistantAPI.authenticatedAPI(urlConfig: backgroundConfigObject) else {
-            Current.Log.error("Couldn't get HAAPI instance")
-            return
-        }
-
-        _ = api.updateComplications().ensure {
-            self.bgTask?.setTaskCompletedWithSnapshot(false)
-        }.catch { error in
-            Current.Log.error("Error updating complications! \(error)")
+    func updateComplications() -> Guarantee<Void> {
+        firstly {
+            HomeAssistantAPI.authenticatedAPIPromise
+        }.then {
+            $0.updateComplications(passively: true)
+        }.recover { _ in
+            ()
         }
     }
 

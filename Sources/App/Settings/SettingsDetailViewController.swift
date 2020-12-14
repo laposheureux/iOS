@@ -138,13 +138,9 @@ class SettingsDetailViewController: FormViewController, TypedRowControllerType {
                     row.title = L10n.SettingsDetails.General.PageZoom.title
                     row.options = SettingsStore.PageZoom.allCases
 
-                    if #available(iOS 12, *) {
-                        row.value = Current.settingsStore.pageZoom
-                        row.onChange { row in
-                            Current.settingsStore.pageZoom = row.value ?? .default
-                        }
-                    } else {
-                        row.hidden = true
+                    row.value = Current.settingsStore.pageZoom
+                    row.onChange { row in
+                        Current.settingsStore.pageZoom = row.value ?? .default
                     }
                 }
 
@@ -241,61 +237,6 @@ class SettingsDetailViewController: FormViewController, TypedRowControllerType {
                     +++ Section(header: "", footer: L10n.SettingsDetails.Location.Zones.footer)
             }
 
-        case "watch":
-            self.title = L10n.SettingsDetails.Watch.title
-
-            let infoBarButtonItem = Constants.helpBarButtonItem
-
-            infoBarButtonItem.action = #selector(watchHelp)
-            infoBarButtonItem.target = self
-
-            self.navigationItem.rightBarButtonItem = infoBarButtonItem
-
-            let existingComplications = self.realm.objects(WatchComplication.self)
-
-            for group in ComplicationGroup.allCases {
-                let members = group.members
-                var header = group.name
-                if members.count == 1 {
-                    header = ""
-                }
-                self.form +++ Section(header: header, footer: group.description)
-
-                for member in members {
-                    let config: WatchComplication
-
-                    if let persistedConfig = existingComplications.filter(
-                        NSPredicate(format: "rawFamily == %@", member.rawValue)
-                    ).first {
-                        config = persistedConfig
-                    } else {
-                        config = WatchComplication()
-                        config.Family = member
-                    }
-
-                    self.form.last!
-                        <<< ButtonRow {
-                            $0.cellStyle = .subtitle
-                            $0.title = member.shortName
-                            $0.presentationMode = .show(controllerProvider: .callback {
-                                return WatchComplicationConfigurator(config: config)
-                            }, onDismiss: { vc in
-                                _ = vc.navigationController?.popViewController(animated: true)
-                            })
-                        }.cellUpdate({ (cell, _) in
-                            if #available(iOS 13, *) {
-                                cell.detailTextLabel?.textColor = .secondaryLabel
-                            } else {
-                                cell.detailTextLabel?.textColor = .darkGray
-                            }
-                            cell.detailTextLabel?.text = member.description
-                            cell.detailTextLabel?.numberOfLines = 0
-                            cell.detailTextLabel?.lineBreakMode = .byWordWrapping
-                        })
-                }
-
-            }
-
         case "actions":
             self.title = L10n.SettingsDetails.Actions.title
             let actions = realm.objects(Action.self)
@@ -325,7 +266,7 @@ class SettingsDetailViewController: FormViewController, TypedRowControllerType {
                 section.multivaluedRowToInsertAt = { [unowned self] _ -> ButtonRowWithPresent<ActionConfigurator> in
                     return self.getActionRow(nil)
                 }
-                section.addButtonProvider = { section in
+                section.addButtonProvider = { _ in
                     return ButtonRow {
                         $0.title = L10n.addButtonLabel
                         $0.cellStyle = .value1

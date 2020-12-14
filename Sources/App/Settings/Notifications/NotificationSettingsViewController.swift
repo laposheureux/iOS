@@ -13,7 +13,7 @@ import RealmSwift
 import Firebase
 import PromiseKit
 import FirebaseMessaging
-import FirebaseInstanceID
+import FirebaseInstallations
 
 // swiftlint:disable:next type_body_length
 class NotificationSettingsViewController: FormViewController {
@@ -123,10 +123,10 @@ class NotificationSettingsViewController: FormViewController {
                 footer: nil
             ) { section in
                 section.tag = "notification_categories"
-                section.multivaluedRowToInsertAt = { index in
+                section.multivaluedRowToInsertAt = { _ in
                     return self.getNotificationCategoryRow(nil)
                 }
-                section.addButtonProvider = { section in
+                section.addButtonProvider = { _ in
                     return ButtonRow {
                         $0.title = L10n.addButtonLabel
                         $0.cellStyle = .value1
@@ -377,15 +377,13 @@ class NotificationSettingsViewController: FormViewController {
 
     func deleteInstanceID() -> Promise<Void> {
         return Promise { seal in
-            InstanceID.instanceID().deleteID(handler: seal.resolve)
+            Messaging.messaging().deleteToken(completion: seal.resolve)
         }
     }
 
     func createInstanceID() -> Promise<String> {
         return Promise { seal in
-            InstanceID.instanceID().instanceID(handler: { (result, error) in
-                seal.resolve(result?.token, error)
-            })
+            Messaging.messaging().token(completion: seal.resolve)
         }
     }
 

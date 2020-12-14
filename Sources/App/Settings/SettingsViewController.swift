@@ -56,7 +56,7 @@ class SettingsViewController: FormViewController {
             self.navigationItem.setLeftBarButton(aboutButton, animated: true)
         }
 
-        if !Current.sceneManager.supportsMultipleScenes {
+        if !Current.sceneManager.supportsMultipleScenes || !Current.isCatalyst {
             let closeSelector = #selector(SettingsViewController.closeSettings(_:))
             let doneButton = UIBarButtonItem(barButtonSystemItem: .done, target: self,
                                              action: closeSelector)
@@ -64,38 +64,23 @@ class SettingsViewController: FormViewController {
             self.navigationItem.setRightBarButton(doneButton, animated: true)
         }
 
-        form +++ Section(L10n.Settings.StatusSection.header) {
-            $0.tag = "status"
-        }
-        <<< LabelRow("locationName") {
-            $0.title = L10n.Settings.StatusSection.LocationNameRow.title
-            $0.value = L10n.Settings.StatusSection.LocationNameRow.placeholder
-            if let locationName = prefs.string(forKey: "location_name") {
-                $0.value = locationName
-            }
-        }
-        <<< LabelRow("version") {
-            $0.title = L10n.Settings.StatusSection.VersionRow.title
-            $0.value = L10n.Settings.StatusSection.VersionRow.placeholder
-            if let version = prefs.string(forKey: "version") {
-                $0.value = version
-            }
+        form +++ HomeAssistantAccountRow {
+            $0.value = .init(
+                user: Current.settingsStore.authenticatedUser,
+                locationName: prefs.string(forKey: "location_name")
+            )
+            $0.presentationMode = .show(controllerProvider: ControllerProvider.callback {
+                return ConnectionSettingsViewController()
+            }, onDismiss: nil)
         }
 
-        +++ Section(L10n.Settings.NavigationBar.title)
+        form +++ Section()
         <<< ButtonRow("generalSettings") {
             $0.title = L10n.Settings.GeneralSettingsButton.title
             $0.presentationMode = .show(controllerProvider: ControllerProvider.callback {
                 let view = SettingsDetailViewController()
                 view.detailGroup = "general"
                 return view
-            }, onDismiss: nil)
-        }
-
-        <<< ButtonRow {
-            $0.title = L10n.Settings.ConnectionSection.header
-            $0.presentationMode = .show(controllerProvider: ControllerProvider.callback {
-                return ConnectionSettingsViewController()
             }, onDismiss: nil)
         }
 
@@ -140,11 +125,9 @@ class SettingsViewController: FormViewController {
             $0.hidden = .isCatalyst
             $0.title = L10n.Settings.DetailsSection.WatchRow.title
             $0.presentationMode = .show(controllerProvider: ControllerProvider.callback {
-                let view = SettingsDetailViewController()
-                view.detailGroup = "watch"
-                return view
+                return ComplicationListViewController()
             }, onDismiss: { _ in
-                _ = HomeAssistantAPI.authenticatedAPI()?.updateComplications()
+
             })
         }
 
@@ -407,7 +390,7 @@ class SettingsViewController: FormViewController {
                 ]
 
                 let error = NSError(domain: NSCocoaErrorDomain, code: -1001, userInfo: userInfo)
-                Current.logError?(error)
+                Current.crashReporter.logError(error)
             }))
 
             self.present(alert, animated: true, completion: nil)

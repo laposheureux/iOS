@@ -130,7 +130,7 @@ extension IncomingURLHandler {
     private func registerCallbackURLKitHandlers() {
         Manager.shared.callbackURLScheme = Manager.urlSchemes?.first
 
-        Manager.shared["fire_event"] = { parameters, success, failure, cancel in
+        Manager.shared["fire_event"] = { parameters, success, failure, _ in
             guard let eventName = parameters["eventName"] else {
                 failure(XCallbackError.eventNameMissing)
                 return
@@ -152,7 +152,7 @@ extension IncomingURLHandler {
             }
         }
 
-        Manager.shared["call_service"] = { parameters, success, failure, cancel in
+        Manager.shared["call_service"] = { parameters, success, failure, _ in
             guard let service = parameters["service"] else {
                 failure(XCallbackError.serviceMissing)
                 return
@@ -178,7 +178,7 @@ extension IncomingURLHandler {
             }
         }
 
-        Manager.shared["send_location"] = { parameters, success, failure, cancel in
+        Manager.shared["send_location"] = { _, success, failure, _ in
             _ = firstly {
                 HomeAssistantAPI.authenticatedAPIPromise
             }.then { api in
@@ -191,7 +191,7 @@ extension IncomingURLHandler {
             }
         }
 
-        Manager.shared["render_template"] = { parameters, success, failure, cancel in
+        Manager.shared["render_template"] = { parameters, success, failure, _ in
             guard let template = parameters["template"] else {
                 failure(XCallbackError.templateMissing)
                 return
@@ -206,7 +206,7 @@ extension IncomingURLHandler {
             }.then { api in
                 api.RenderTemplate(templateStr: template, variables: variablesDict)
             }.done { rendered in
-                success(["rendered": rendered])
+                success(["rendered": String(describing: rendered)])
             }.catch { error in
                 Current.Log.error("Received error from RenderTemplate during X-Callback-URL call: \(error)")
                 failure(XCallbackError.generalError)

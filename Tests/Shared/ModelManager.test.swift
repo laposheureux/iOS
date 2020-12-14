@@ -47,7 +47,7 @@ class ModelManagerTests: XCTestCase {
             let results = AnyRealmCollection(realm.objects(TestStoreModel1.self))
 
             let executedExpectation = self.expectation(description: "observed")
-            executedExpectation.expectedFulfillmentCount = 3
+            executedExpectation.expectedFulfillmentCount = 2
 
             var didObserveCount = 0
 
@@ -60,7 +60,7 @@ class ModelManagerTests: XCTestCase {
 
             realm.refresh()
 
-            XCTAssertEqual(didObserveCount, 1)
+            XCTAssertEqual(didObserveCount, 0)
 
             try realm.write {
                 realm.add(with(TestStoreModel1()) {
@@ -71,7 +71,7 @@ class ModelManagerTests: XCTestCase {
 
             realm.refresh()
 
-            XCTAssertEqual(didObserveCount, 2)
+            XCTAssertEqual(didObserveCount, 1)
 
             try realm.write {
                 realm.add(with(TestStoreModel1()) {
@@ -82,7 +82,7 @@ class ModelManagerTests: XCTestCase {
 
             realm.refresh()
 
-            XCTAssertEqual(didObserveCount, 3)
+            XCTAssertEqual(didObserveCount, 2)
 
             wait(for: [executedExpectation], timeout: 10.0)
         }
@@ -365,8 +365,9 @@ class TestDeleteModel1: Object {
         self.createdAt = createdAt
     }
 
-    required init() {
+    required override init() {
         self.createdAt = Date()
+        super.init()
     }
 
     override class func primaryKey() -> String? {
@@ -382,8 +383,9 @@ class TestDeleteModel2: Object {
         self.createdAt = createdAt
     }
 
-    required init() {
+    override required init() {
         self.createdAt = Date()
+        super.init()
     }
 
     override class func primaryKey() -> String? {
@@ -397,10 +399,12 @@ class TestDeleteModel3: Object {
 
     init(_ createdAt: Date) {
         self.createdAt = createdAt
+        super.init()
     }
 
-    required init() {
+    required override init() {
         self.createdAt = Date()
+        super.init()
     }
 
     override class func primaryKey() -> String? {

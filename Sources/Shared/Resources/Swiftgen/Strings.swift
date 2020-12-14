@@ -2223,11 +2223,57 @@ public enum L10n {
   }
 
   public enum Watch {
+    /// Placeholder
+    public static var placeholderComplicationName: String { return L10n.tr("Localizable", "watch.placeholder_complication_name") }
     public enum Configurator {
+      public enum Delete {
+        /// Delete Complication
+        public static var button: String { return L10n.tr("Localizable", "watch.configurator.delete.button") }
+        /// Are you sure you want to delete this Complication? This cannot be undone.
+        public static var message: String { return L10n.tr("Localizable", "watch.configurator.delete.message") }
+        /// Delete Complication?
+        public static var title: String { return L10n.tr("Localizable", "watch.configurator.delete.title") }
+      }
+      public enum List {
+        /// Configure a new Complication using the Add button. Once saved, you can choose it on your Apple Watch or in the Watch app.
+        public static var description: String { return L10n.tr("Localizable", "watch.configurator.list.description") }
+        /// Learn More
+        public static var learnMore: String { return L10n.tr("Localizable", "watch.configurator.list.learn_more") }
+      }
+      public enum New {
+        /// Adding another Complication for the same type as an existing one requires watchOS 7 or newer.
+        public static var multipleComplicationInfo: String { return L10n.tr("Localizable", "watch.configurator.new.multiple_complication_info") }
+        /// New Complication
+        public static var title: String { return L10n.tr("Localizable", "watch.configurator.new.title") }
+      }
+      public enum PreviewError {
+        /// Expected a number but got %1$@: '%2$@'
+        public static func notNumber(_ p1: Any, _ p2: Any) -> String {
+          return L10n.tr("Localizable", "watch.configurator.preview_error.not_number", String(describing: p1), String(describing: p2))
+        }
+        /// Expected a number between 0.0 and 1.0 but got %1$f
+        public static func outOfRange(_ p1: Float) -> String {
+          return L10n.tr("Localizable", "watch.configurator.preview_error.out_of_range", p1)
+        }
+      }
       public enum Rows {
         public enum Color {
           /// Color
           public static var title: String { return L10n.tr("Localizable", "watch.configurator.rows.color.title") }
+        }
+        public enum Column2Alignment {
+          /// Column 2 Alignment
+          public static var title: String { return L10n.tr("Localizable", "watch.configurator.rows.column_2_alignment.title") }
+          public enum Options {
+            /// Leading
+            public static var leading: String { return L10n.tr("Localizable", "watch.configurator.rows.column_2_alignment.options.leading") }
+            /// Trailing
+            public static var trailing: String { return L10n.tr("Localizable", "watch.configurator.rows.column_2_alignment.options.trailing") }
+          }
+        }
+        public enum DisplayName {
+          /// Display Name
+          public static var title: String { return L10n.tr("Localizable", "watch.configurator.rows.display_name.title") }
         }
         public enum FractionalValue {
           /// Fractional value
@@ -2270,6 +2316,10 @@ public enum L10n {
             /// Color
             public static var title: String { return L10n.tr("Localizable", "watch.configurator.rows.icon.color.title") }
           }
+        }
+        public enum IsPublic {
+          /// Show When Locked
+          public static var title: String { return L10n.tr("Localizable", "watch.configurator.rows.is_public.title") }
         }
         public enum Ring {
           /// Ring

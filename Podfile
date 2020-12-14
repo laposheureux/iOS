@@ -11,6 +11,8 @@ pod 'Communicator', '~> 3.3.0'
 pod 'KeychainAccess'
 pod 'ObjectMapper', :git => 'https://github.com/tristanhimmelman/ObjectMapper.git', :branch => 'master'
 pod 'PromiseKit'
+pod 'RealmSwift'
+pod 'Sentry'
 pod 'UIColor_Hex_Swift'
 pod 'Version'
 pod 'XCGLogger'
@@ -26,13 +28,19 @@ def test_pods
     pod 'OHHTTPStubs/Swift'
 end
 
+def shared_fwk_pods
+    pod 'Sodium', :git => 'https://github.com/jedisct1/swift-sodium.git', :branch => 'master'
+end
+
 abstract_target 'iOS' do
-    platform :ios, '11.0'
+    platform :ios, '12.0'
 
     pod 'MBProgressHUD', '~> 1.2.0'
     pod 'ReachabilitySwift'
 
     target 'Shared-iOS' do
+        shared_fwk_pods
+
         target 'Tests-Shared' do
             inherit! :complete
             test_pods
@@ -47,9 +55,8 @@ abstract_target 'iOS' do
         pod 'Firebase/Messaging'
         pod 'Lokalise', '~> 0.10.0'
         pod 'lottie-ios'
-        pod 'Sentry'
         pod 'SimulatorStatusMagic', :configurations => ['Debug']
-        pod 'SwiftGen', '~> 6.3.0'
+        pod 'SwiftGen', '~> 6.4.0'
         pod 'SwiftLint'
         pod 'SwiftMessages'
         pod 'ViewRow', :git => 'https://github.com/EurekaCommunity/ViewRow', :branch => 'master'
@@ -72,7 +79,9 @@ end
 abstract_target 'watchOS' do
     platform :watchos, '5.0'
 
-    target 'Shared-watchOS'
+    target 'Shared-watchOS' do
+        shared_fwk_pods
+    end
 
     target 'WatchExtension-Watch' do
         pod 'EMTLoadingIndicator', :git => 'https://github.com/hirokimu/EMTLoadingIndicator', :branch => 'master'
@@ -89,7 +98,6 @@ post_install do |installer|
 
             config.build_settings['WATCHOS_DEPLOYMENT_TARGET'] = '5.0'
             config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '11.0'
-            config.build_settings['EXCLUDED_ARCHS[sdk=watchsimulator*]'] = 'x86_64 arm64'
         end
 
         # Fix bundle targets' 'Signing Certificate' to 'Sign to Run Locally'

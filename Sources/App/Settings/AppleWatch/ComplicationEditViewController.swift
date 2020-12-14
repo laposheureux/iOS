@@ -1,5 +1,5 @@
 //
-//  WatchComplicationConfigurator.swift
+//  ComplicationEditViewController.swift
 //  HomeAssistant
 //
 //  Created by Robert Trencheny on 9/25/18.
@@ -15,7 +15,7 @@ import ObjectMapper
 import ColorPickerRow
 
 // swiftlint:disable:next type_body_length
-class WatchComplicationConfigurator: FormViewController, TypedRowControllerType {
+class ComplicationEditViewController: FormViewController, TypedRowControllerType {
 
     var row: RowOf<ButtonRow>!
     /// A closure to be called when the controller disappears.
@@ -48,18 +48,61 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         do {
             let realm = Current.realm()
             try realm.write {
-                self.config.Template = displayTemplate
-                self.config.Data = getValuesGroupedBySection()
+                if let name = (form.rowBy(tag: "name") as? TextRow)?.value, name.isEmpty == false {
+                    config.name = name
+                } else {
+                    config.name = nil
+                }
+                if let IsPublic = (form.rowBy(tag: "IsPublic") as? SwitchRow)?.value {
+                    config.IsPublic = IsPublic
+                } else {
+                    config.IsPublic = true
+                }
+                config.Template = displayTemplate
+                config.Data = getValuesGroupedBySection()
 
-                Current.Log.verbose("COMPLICATION \(self.config) \(self.config.Data)")
+                Current.Log.verbose("COMPLICATION \(config) \(config.Data)")
 
-                realm.add(self.config, update: .all)
+                realm.add(config, update: .all)
             }
         } catch {
             Current.Log.error(error)
         }
 
+        HomeAssistantAPI.authenticatedAPI()?.updateComplications(passively: false).cauterize()
+
         onDismissCallback?(self)
+    }
+
+    @objc private func deleteComplication(_ sender: UIView) {
+        precondition(config.realm != nil)
+
+        let alert = UIAlertController(
+            title: L10n.Watch.Configurator.Delete.title,
+            message: L10n.Watch.Configurator.Delete.message,
+            preferredStyle: .actionSheet
+        )
+        with(alert.popoverPresentationController) {
+            $0?.sourceView = sender
+            $0?.sourceRect = sender.bounds
+        }
+        alert.addAction(UIAlertAction(
+                            title: L10n.Watch.Configurator.Delete.button, style: .destructive, handler: { [config] _ in
+            let realm = Current.realm()
+            do {
+                try realm.write {
+                    realm.delete(config)
+                }
+            } catch {
+                Current.Log.error(error)
+            }
+
+            HomeAssistantAPI.authenticatedAPI()?.updateComplications(passively: false).cauterize()
+
+            self.onDismissCallback?(self)
+        }))
+        alert.addAction(UIAlertAction(title: L10n.cancelLabel, style: .cancel, handler: nil))
+        present(alert, animated: true, completion: nil)
     }
 
     // swiftlint:disable:next function_body_length cyclomatic_complexity
@@ -92,7 +135,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
 
         let textSections = ComplicationTextAreas.allCases.map({ addComplicationTextAreaFormSection(location: $0) })
 
-        TextAreaRow.defaultCellSetup = { cell, row in
+        TextAreaRow.defaultCellSetup = { cell, _ in
             cell.textView.smartQuotesType = .no
             cell.textView.smartDashesType = .no
         }
@@ -101,6 +144,12 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
 
         +++ Section {
             $0.tag = "template"
+        }
+
+        <<< TextRow("name") {
+            $0.title = L10n.Watch.Configurator.Rows.DisplayName.title
+            $0.placeholder = self.config.Family.name
+            $0.value = self.config.name
         }
 
         <<< PushRow<ComplicationTemplate> {
@@ -140,24 +189,39 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
             cell.detailTextLabel?.text = row.value?.style
         }
 
+        <<< SwitchRow("IsPublic") {
+            $0.title = L10n.Watch.Configurator.Rows.IsPublic.title
+            $0.value = self.config.IsPublic
+        }
+
         self.form.append(contentsOf: textSections)
 
         self.form
 
         +++ Section {
-            $0.tag = "row2alignment"
+            $0.tag = "column2alignment"
             $0.hidden = .function([], { [weak self] _ in
-                return self?.displayTemplate.supportsRow2Alignment == false
+                return self?.displayTemplate.supportsColumn2Alignment == false
             })
         }
 
         <<< SegmentedRow<String> {
-            $0.tag = "row2alignment"
-            $0.title = L10n.Watch.Configurator.Rows.Row2Alignment.title
+            $0.tag = "column2alignment"
+            $0.title = L10n.Watch.Configurator.Rows.Column2Alignment.title
             $0.add(rule: RuleRequired())
-            $0.options = [L10n.Watch.Configurator.Rows.Row2Alignment.Options.leading,
-                          L10n.Watch.Configurator.Rows.Row2Alignment.Options.trailing]
+            $0.options = ["leading", "trailing"]
+            $0.displayValueFor = {
+                if $0?.lowercased() == "leading" {
+                    return L10n.Watch.Configurator.Rows.Column2Alignment.Options.leading
+                } else {
+                    return L10n.Watch.Configurator.Rows.Column2Alignment.Options.trailing
+                }
+            }
             $0.value = $0.options?.first
+            if let info = self.config.Data["column2alignment"] as? [String: Any],
+                let value = info[$0.tag!] as? String {
+                $0.value = value
+            }
         }
 
         +++ Section(header: L10n.Watch.Configurator.Sections.Gauge.header,
@@ -171,6 +235,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         <<< TextAreaRow {
             $0.tag = "gauge"
             $0.title = L10n.Watch.Configurator.Rows.Gauge.title
+            $0.placeholder = "{{ range(1, 100) | random / 100.0 }}"
             $0.add(rule: RuleRequired())
             if let gaugeDict = self.config.Data["gauge"] as? [String: Any],
                 let value = gaugeDict[$0.tag!] as? String {
@@ -182,7 +247,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
             $0.tag = "gauge_render_template"
             $0.title = L10n.previewOutput
             }.onCellSelection({ _, _ in
-                self.renderTemplateForRow(rowTag: "gauge")
+                self.renderTemplateForRow(rowTag: "gauge", expectingPercentile: true)
             })
 
         <<< InlineColorPickerRow("gauge_color") {
@@ -202,8 +267,14 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
             $0.tag = "gauge_type"
             $0.title = L10n.Watch.Configurator.Rows.Gauge.GaugeType.title
             $0.add(rule: RuleRequired())
-            $0.options = [L10n.Watch.Configurator.Rows.Gauge.GaugeType.Options.open,
-                          L10n.Watch.Configurator.Rows.Gauge.GaugeType.Options.closed]
+            $0.options = ["open", "closed"]
+            $0.displayValueFor = {
+                if $0?.lowercased() == "open" {
+                    return L10n.Watch.Configurator.Rows.Gauge.GaugeType.Options.open
+                } else {
+                    return L10n.Watch.Configurator.Rows.Gauge.GaugeType.Options.closed
+                }
+            }
             $0.value = $0.options?.first
             if let gaugeDict = self.config.Data["gauge"] as? [String: Any],
                 let value = gaugeDict[$0.tag!] as? String {
@@ -215,8 +286,14 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
             $0.tag = "gauge_style"
             $0.title = L10n.Watch.Configurator.Rows.Gauge.Style.title
             $0.add(rule: RuleRequired())
-            $0.options = [L10n.Watch.Configurator.Rows.Gauge.Style.Options.fill,
-                          L10n.Watch.Configurator.Rows.Gauge.Style.Options.ring]
+            $0.options = ["fill", "ring"]
+            $0.displayValueFor = {
+                if $0?.lowercased() == "fill" {
+                    return L10n.Watch.Configurator.Rows.Gauge.Style.Options.fill
+                } else {
+                    return L10n.Watch.Configurator.Rows.Gauge.Style.Options.ring
+                }
+            }
             $0.value = $0.options?.first
             if let gaugeDict = self.config.Data["gauge"] as? [String: Any],
                 let value = gaugeDict[$0.tag!] as? String {
@@ -235,6 +312,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         <<< TextAreaRow {
             $0.tag = "ring_value"
             $0.title = L10n.Watch.Configurator.Rows.Ring.Value.title
+            $0.placeholder = "{{ range(1, 100) | random / 100.0 }}"
             $0.add(rule: RuleRequired())
             if let dict = self.config.Data["ring"] as? [String: Any],
                 let value = dict[$0.tag!] as? String {
@@ -246,21 +324,42 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
             $0.tag = "ring_render_template"
             $0.title = L10n.previewOutput
         }.onCellSelection({ _, _ in
-            self.renderTemplateForRow(rowTag: "ring_value")
+            self.renderTemplateForRow(rowTag: "ring_value", expectingPercentile: true)
         })
 
         <<< SegmentedRow<String> {
             $0.tag = "ring_type"
             $0.title = L10n.Watch.Configurator.Rows.Ring.RingType.title
             $0.add(rule: RuleRequired())
-            $0.options = [L10n.Watch.Configurator.Rows.Ring.RingType.Options.open,
-                          L10n.Watch.Configurator.Rows.Ring.RingType.Options.closed]
+            $0.options = ["open", "closed"]
+
+            $0.displayValueFor = { value in
+                if value?.lowercased() == "open" {
+                    return L10n.Watch.Configurator.Rows.Ring.RingType.Options.open
+                } else {
+                    return L10n.Watch.Configurator.Rows.Ring.RingType.Options.closed
+                }
+            }
+
             $0.value = $0.options?.first
             if let dict = self.config.Data["ring"] as? [String: Any],
                 let value = dict[$0.tag!] as? String {
                 $0.value = value
             }
         }
+
+        <<< InlineColorPickerRow("ring_color") {
+                $0.title = L10n.Watch.Configurator.Rows.Ring.Color.title
+                $0.isCircular = true
+                $0.showsPaletteNames = true
+                $0.value = UIColor.green
+                if let dict = self.config.Data["ring"] as? [String: Any],
+                    let value = dict[$0.tag!] as? String {
+                    $0.value = UIColor(hex: value)
+                }
+            }.onChange { (picker) in
+                Current.Log.verbose("ring color: \(picker.value!.hexString(false))")
+            }
 
         +++ Section(header: L10n.Watch.Configurator.Sections.Icon.header,
                     footer: L10n.Watch.Configurator.Sections.Icon.footer) {
@@ -325,8 +424,29 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
                 }
             }
 
-        reloadForm()
+        +++ Section { [config] section in
+            section.tag = "delete"
 
+            if config.realm == nil {
+                // don't need to show a delete button for an unpersisted complication
+                section.hidden = true
+            }
+        }
+        <<< ButtonRow {
+            $0.title = L10n.Watch.Configurator.Delete.button
+            $0.onCellSelection { [weak self] cell, _ in
+                self?.deleteComplication(cell)
+            }
+            $0.cellUpdate { cell, _ in
+                if #available(iOS 13, *) {
+                    cell.textLabel?.textColor = .systemRed
+                } else {
+                    cell.textLabel?.textColor = .red
+                }
+            }
+        }
+
+        reloadForm()
     }
 
     @objc
@@ -334,44 +454,78 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         openURLInBrowser(URL(string: "https://companion.home-assistant.io/app/ios/apple-watch")!, self)
     }
 
-    func renderTemplateForRow(rowTag: String) {
+    func renderTemplateForRow(rowTag: String, expectingPercentile: Bool) {
         if let row = self.form.rowBy(tag: rowTag) as? TextAreaRow, let value = row.value {
             Current.Log.verbose("Render template from \(value)")
 
-            renderTemplateValue(value, row)
+            renderTemplateValue(value, row, expectingPercentile: expectingPercentile)
         }
     }
 
-    func renderTemplateForRow(row: BaseRow) {
+    func renderTemplateForRow(row: BaseRow, expectingPercentile: Bool) {
         if let value = row.baseValue as? String {
             Current.Log.verbose("Render template from \(value)")
 
-            renderTemplateValue(value, row)
+            renderTemplateValue(value, row, expectingPercentile: expectingPercentile)
         }
     }
 
-    func renderTemplateValue(_ value: String, _ row: BaseRow) {
-        HomeAssistantAPI.authenticatedAPI()?.RenderTemplate(templateStr: value).done { val in
+    enum RenderValueError: LocalizedError {
+        case expectedFloat(value: Any)
+        case outOfRange(value: Float)
+
+        var errorDescription: String? {
+            switch self {
+            case .expectedFloat(value: let value):
+                return L10n.Watch.Configurator.PreviewError.notNumber(type(of: value), value)
+            case .outOfRange(value: let value):
+                return L10n.Watch.Configurator.PreviewError.outOfRange(value)
+            }
+        }
+    }
+
+    func renderTemplateValue(_ value: String, _ row: BaseRow, expectingPercentile: Bool) {
+        firstly {
+            HomeAssistantAPI.authenticatedAPIPromise
+        }.then {
+            $0.RenderTemplate(templateStr: value)
+        }.get { result in
+            if expectingPercentile {
+                if let number = WatchComplication.percentileNumber(from: result) {
+                    if !(0...1 ~= number) {
+                        throw RenderValueError.outOfRange(value: number)
+                    }
+                } else {
+                    throw RenderValueError.expectedFloat(value: result)
+                }
+            }
+        }.done { [self] val in
             Current.Log.verbose("Rendered value is \(val)")
 
-            let alert = UIAlertController(title: L10n.previewOutput, message: val,
-                                          preferredStyle: UIAlertController.Style.alert)
-            alert.addAction(UIAlertAction(title: L10n.okLabel, style: UIAlertAction.Style.default,
-                                          handler: nil))
-            self.present(alert, animated: true, completion: nil)
-
-            alert.popoverPresentationController?.sourceView = row.baseCell.formViewController()?.view
-
-            }.catch { renderErr in
-                Current.Log.error("Error rendering template! \(renderErr)")
-                let alert = UIAlertController(title: L10n.errorLabel,
-                                              message: renderErr.localizedDescription,
-                                              preferredStyle: UIAlertController.Style.alert)
-                alert.addAction(UIAlertAction(title: L10n.okLabel, style: UIAlertAction.Style.default,
-                                              handler: nil))
-                self.present(alert, animated: true, completion: nil)
-
-                alert.popoverPresentationController?.sourceView = row.baseCell.formViewController()?.view
+            let alert = UIAlertController(
+                title: L10n.previewOutput,
+                message: String(describing: val),
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: L10n.okLabel,
+                style: .default,
+                handler: nil
+            ))
+            present(alert, animated: true, completion: nil)
+        }.catch { [self] renderErr in
+            Current.Log.error("Error rendering template! \(renderErr)")
+            let alert = UIAlertController(
+                title: L10n.errorLabel,
+                message: renderErr.localizedDescription,
+                preferredStyle: .alert
+            )
+            alert.addAction(UIAlertAction(
+                title: L10n.okLabel,
+                style: .default,
+                handler: nil
+            ))
+            present(alert, animated: true, completion: nil)
         }
     }
 
@@ -406,7 +560,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         section.append(ButtonRow {
             $0.title = L10n.previewOutput
         }.onCellSelection({ _, _ in
-            self.renderTemplateForRow(row: textRow)
+            self.renderTemplateForRow(row: textRow, expectingPercentile: false)
         }))
 
         section.append(InlineColorPickerRow {
@@ -447,7 +601,7 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
         var textAreasDict: [String: [String: Any]] = [:]
 
         for row in self.form.allRows {
-            if row.section!.isHidden || row.section!.tag == "template" {
+            if row.section!.isHidden || row.section!.tag == "template" || row.section!.tag == "delete" {
                 continue
             }
 
@@ -467,11 +621,6 @@ class WatchComplicationConfigurator: FormViewController, TypedRowControllerType 
                     }
 
                     textAreasDict[sectionTag]![rowTag] = rowValue
-
-                    if rowTag == "text", let value = rowValue as? String {
-                        textAreasDict[sectionTag]!["textNeedsRender"] = (value.contains("{{") || value.contains("}}"))
-                    }
-
                 } else {
                     if groupedVals[sectionTag] == nil {
                         groupedVals[sectionTag] = [String: Any]()

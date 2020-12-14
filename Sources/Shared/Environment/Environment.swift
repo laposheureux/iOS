@@ -42,6 +42,15 @@ public var Current = Environment()
 /// The current "operating envrionment" the app. Implementations can be swapped out to facilitate better
 /// unit tests.
 public class Environment {
+    internal init() {
+        let crashReporter = CrashReporterImpl()
+        self.crashReporter = crashReporter
+        crashReporter.setup(environment: self)
+    }
+
+    /// Crash reporting and related metadata gathering
+    public var crashReporter: CrashReporter
+
     /// Provides URLs usable for storing data.
     public var date: () -> Date = Date.init
     public var calendar: () -> Calendar = { Calendar.autoupdatingCurrent }
@@ -67,6 +76,7 @@ public class Environment {
         $0.register(responseHandler: WebhookResponseUpdateSensors.self, for: .updateSensors)
         $0.register(responseHandler: WebhookResponseLocation.self, for: .location)
         $0.register(responseHandler: WebhookResponseServiceCall.self, for: .serviceCall)
+        $0.register(responseHandler: WebhookResponseUpdateComplications.self, for: .updateComplications)
     }
 
     public var sensors = with(SensorContainer()) {
@@ -86,6 +96,10 @@ public class Environment {
     public var tags: TagManager = EmptyTagManager()
 
     public var updater: Updater = Updater()
+
+    #if os(watchOS)
+    public var backgroundRefreshScheduler = WatchBackgroundRefreshScheduler()
+    #endif
 
     #if targetEnvironment(macCatalyst)
     public var macBridge: MacBridge = {
@@ -113,11 +127,7 @@ public class Environment {
 
     public var isPerformingSingleShotLocationQuery = false
 
-    public var logEvent: ((String, [String: Any]) -> Void)?
-    public var logError: ((NSError) -> Void)?
     public var backgroundTask: HomeAssistantBackgroundTaskRunner = ProcessInfoBackgroundTaskRunner()
-
-    public var setUserProperty: ((String?, String) -> Void)?
 
     public func updateWith(authenticatedAPI: HomeAssistantAPI) {
         self.tokenManager = authenticatedAPI.tokenManager
@@ -170,21 +180,23 @@ public class Environment {
         // Create a logger object with no destinations
         let log = XCGLogger(identifier: "advancedLogger", includeDefaultDestinations: false)
 
-        // Create a destination for the system console log (via NSLog)
-        let systemDestination = AppleSystemLogDestination(identifier: "advancedLogger.systemDestination")
+        #if DEBUG
+        log.dateFormatter = with(DateFormatter()) {
+            $0.dateFormat = "HH:mm:ss.SSS"
+            $0.locale = Locale.current
+        }
 
-        // Optionally set some configuration options
-        systemDestination.outputLevel = .verbose
-        systemDestination.showLogIdentifier = false
-        systemDestination.showFunctionName = true
-        systemDestination.showThreadName = true
-        systemDestination.showLevel = true
-        systemDestination.showFileName = true
-        systemDestination.showLineNumber = true
-        systemDestination.showDate = true
-
-        // Add the destination to the logger
-        log.add(destination: systemDestination)
+        log.add(destination: with(ConsoleDestination()) {
+            $0.outputLevel = .verbose
+            $0.showLogIdentifier = false
+            $0.showFunctionName = true
+            $0.showThreadName = true
+            $0.showLevel = true
+            $0.showFileName = true
+            $0.showLineNumber = true
+            $0.showDate = true
+        })
+        #endif
 
         let logPath = Constants.LogsDirectory.appendingPathComponent("log.txt", isDirectory: false)
 
@@ -276,22 +288,11 @@ public class Environment {
         public var simpleNetworkType: () -> NetworkType = Reachability.getSimpleNetworkType
         public var cellularNetworkType: () -> NetworkType = Reachability.getNetworkType
 
-        public var telephonyCarriers: () -> [String?: CTCarrier]? = {
-            let info = CTTelephonyNetworkInfo()
-
-            if #available(iOS 12, *) {
-                return info.serviceSubscriberCellularProviders
-            } else {
-                return info.subscriberCellularProvider.flatMap { [nil: $0] }
-            }
+        public var telephonyCarriers: () -> [String: CTCarrier]? = {
+            CTTelephonyNetworkInfo().serviceSubscriberCellularProviders
         }
-        public var telephonyRadioAccessTechnology: () -> [String?: String]? = {
-            let info = CTTelephonyNetworkInfo()
-            if #available(iOS 12, *) {
-                return info.serviceCurrentRadioAccessTechnology
-            } else {
-                return info.currentRadioAccessTechnology.flatMap { [nil: $0] }
-            }
+        public var telephonyRadioAccessTechnology: () -> [String: String]? = {
+            CTTelephonyNetworkInfo().serviceCurrentRadioAccessTechnology
         }
         #endif
     }

@@ -203,7 +203,7 @@ public class HomeAssistantAPI {
                 self.GetConfig().asVoid(),
                 Current.modelManager.fetch(),
                 self.UpdateSensors(trigger: reason.updateSensorTrigger).asVoid(),
-                self.updateComplications().asVoid()
+                self.updateComplications(passively: false).asVoid()
             ]).asVoid()
         }.get { _ in
             NotificationCenter.default.post(name: Self.didConnectNotification,
@@ -212,10 +212,8 @@ public class HomeAssistantAPI {
     }
 
     public func CreateEvent(eventType: String, eventData: [String: Any]) -> Promise<Void> {
-        if #available(iOS 12, *) {
-            let intent = FireEventIntent(eventName: eventType, payload: eventData)
-            INInteraction(intent: intent, response: nil).donate(completion: nil)
-        }
+        let intent = FireEventIntent(eventName: eventType, payload: eventData)
+        INInteraction(intent: intent, response: nil).donate(completion: nil)
 
         return Current.webhooks.send(
             identifier: .unhandled,
@@ -271,7 +269,7 @@ public class HomeAssistantAPI {
                 return (downloadPath, [.removePreviousFile, .createIntermediateDirectories])
             }
 
-            dataManager.download(finalURL, to: destination).responseData { downloadResponse in
+            dataManager.download(finalURL, to: destination).validate().responseData { downloadResponse in
                 switch downloadResponse.result {
                 case .success:
                     seal.fulfill(downloadResponse.destinationURL!)
@@ -315,7 +313,7 @@ public class HomeAssistantAPI {
             self.prefs.setValue(config.Version, forKey: "version")
             self.prefs.setValue(config.ThemeColor, forKey: "themeColor")
 
-            Current.setUserProperty?(config.Version, "HA_Version")
+            Current.crashReporter.setUserProperty(value: config.Version, name: "HA_Version")
 
             return Promise.value(config)
         }
@@ -339,10 +337,8 @@ public class HomeAssistantAPI {
 
     public func CallService(domain: String, service: String, serviceData: [String: Any],
                             shouldLog: Bool = true) -> Promise<Void> {
-        if #available(iOS 12, *) {
-            let intent = CallServiceIntent(domain: domain, service: service, payload: serviceData)
-            INInteraction(intent: intent, response: nil).donate(completion: nil)
-        }
+        let intent = CallServiceIntent(domain: domain, service: service, payload: serviceData)
+        INInteraction(intent: intent, response: nil).donate(completion: nil)
 
         return Current.webhooks.send(
             identifier: .serviceCall,
@@ -354,21 +350,39 @@ public class HomeAssistantAPI {
         )
     }
 
-    public func RenderTemplate(templateStr: String, variables: [String: Any] = [:]) -> Promise<String> {
-        let hookPayload: [String: [String: Any]] = ["tpl": ["template": templateStr, "variables": variables]]
-        let req: Promise<Any> = Current.webhooks.sendEphemeral(
-            request: .init(type: "render_template", data: hookPayload)
-        )
-        return req.then { (resp: Any) -> Promise<String> in
-            guard let jsonDict = resp as? [String: String] else {
-                return Promise.value("Error")
-            }
+    public enum TemplateError: LocalizedError {
+        case unknownError
+        case error(String)
 
-            guard let rendered = jsonDict["tpl"] else {
-                return Promise.value("Error")
+        public var errorDescription: String? {
+            switch self {
+            case .error(let error): return error
+            case .unknownError: return L10n.HaApi.ApiError.unknown
             }
+        }
+    }
 
-            return Promise.value(rendered)
+    public func RenderTemplate(templateStr: String, variables: [String: Any] = [:]) -> Promise<Any> {
+        return firstly { () -> Promise<Any> in
+            Current.webhooks.sendEphemeral(
+                request: .init(type: "render_template", data: [
+                    "tpl": [
+                        "template": templateStr,
+                        "variables": variables
+                    ]
+                ])
+            )
+        }.map { value in
+            if let value = value as? [String: Any], let rendered = value["tpl"] {
+                return rendered
+            } else {
+                throw TemplateError.unknownError
+            }
+        }.get { value in
+            if let value = value as? [String: Any], let error = value["error"] as? String {
+                // the only error response for the template is {"error": "message"}
+                throw TemplateError.error(error)
+            }
         }
     }
 
@@ -511,10 +525,9 @@ public class HomeAssistantAPI {
             } else {
                 throw HomeAssistantAPI.APIError.updateNotPossible
             }
-        }.map { payload -> [String: Any] in
+        }.get { payload in
             let realm = Current.realm()
-            // swiftlint:disable:next force_try
-            try! realm.write {
+            try realm.write {
                 var jsonPayload = "{\"missing\": \"payload\"}"
                 if let p = payload.toJSONString(prettyPrint: false) {
                     jsonPayload = p
@@ -523,7 +536,7 @@ public class HomeAssistantAPI {
                 realm.add(LocationHistoryEntry(updateType: updateType, location: payload.cllocation,
                                                zone: zone, payload: jsonPayload))
             }
-
+        }.map { payload -> [String: Any] in
             let payloadDict: [String: Any] = Mapper<WebhookUpdateLocation>().toJSON(payload)
             Current.Log.info("Location update payload: \(payloadDict)")
             return payloadDict
@@ -540,8 +553,7 @@ public class HomeAssistantAPI {
                             zone: zone
                         )
                     )
-                ),
-                self.updateComplications().asVoid()
+                )
             )
         }.asVoid()
     }
@@ -585,7 +597,7 @@ public class HomeAssistantAPI {
         }
     }
 
-    private class var sharedEventDeviceInfo: [String: String] { [
+    public class var sharedEventDeviceInfo: [String: String] { [
         "sourceDevicePermanentID": Constants.PermanentID,
         "sourceDeviceName": Current.settingsStore.overrideDeviceName ?? Current.device.deviceName(),
         "sourceDeviceID": Current.settingsStore.deviceID
@@ -731,10 +743,8 @@ public class HomeAssistantAPI {
                 throw HomeAssistantAPI.APIError.cantBuildURL
             }
 
-            if #available(iOS 12, *) {
-                let intent = PerformActionIntent(action: action)
-                INInteraction(intent: intent, response: nil).donate(completion: nil)
-            }
+            let intent = PerformActionIntent(action: action)
+            INInteraction(intent: intent, response: nil).donate(completion: nil)
 
             switch action.triggerType {
             case .event:

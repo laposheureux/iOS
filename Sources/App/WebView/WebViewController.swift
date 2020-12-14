@@ -108,10 +108,17 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
 
         self.becomeFirstResponder()
 
-        NotificationCenter.default.addObserver(self,
-                                               selector: #selector(WebViewController.loadActiveURLIfNeeded),
-                                               name: HomeAssistantAPI.didConnectNotification,
-                                               object: nil)
+        for name: Notification.Name in [
+            SettingsStore.connectionInfoDidChange,
+            HomeAssistantAPI.didConnectNotification
+        ] {
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(connectionInfoDidChange),
+                name: name,
+                object: nil
+            )
+        }
 
         let statusBarView = UIView()
         statusBarView.tag = 111
@@ -184,7 +191,7 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
                 return
             }
 
-            guard scheme.hasPrefix("http") else {
+            guard ["http", "https"].contains(scheme) else {
                 Current.Log.warning("Was going to provide invalid URL to NSUserActivity! \(currentURL)")
                 return
             }
@@ -232,7 +239,7 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
     }
 
     public func showSettingsViewController() {
-        if #available(iOS 13, *), Current.sceneManager.supportsMultipleScenes {
+        if #available(iOS 13, *), Current.sceneManager.supportsMultipleScenes, Current.isCatalyst {
             Current.sceneManager.activateAnyScene(for: .settings)
         } else {
             let settingsView = SettingsViewController()
@@ -446,7 +453,12 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
             completionHandler(false)
         }))
 
-        present(alertController, animated: true, completion: nil)
+        if presentedViewController != nil {
+            Current.Log.error("attempted to present an alert when already presenting, bailing")
+            completionHandler(false)
+        } else {
+            present(alertController, animated: true, completion: nil)
+        }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptTextInputPanelWithPrompt prompt: String, defaultText: String?,
@@ -469,7 +481,12 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
             completionHandler(nil)
         }))
 
-        present(alertController, animated: true, completion: nil)
+        if presentedViewController != nil {
+            Current.Log.error("attempted to present an alert when already presenting, bailing")
+            completionHandler(nil)
+        } else {
+            present(alertController, animated: true, completion: nil)
+        }
     }
 
     func webView(_ webView: WKWebView, runJavaScriptAlertPanelWithMessage message: String,
@@ -481,7 +498,19 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
         }))
 
         alertController.popoverPresentationController?.sourceView = self.webView
-        present(alertController, animated: true, completion: nil)
+
+        if presentedViewController != nil {
+            Current.Log.error("attempted to present an alert when already presenting, bailing")
+            completionHandler()
+        } else {
+            present(alertController, animated: true, completion: nil)
+        }
+    }
+
+    @objc private func connectionInfoDidChange() {
+        DispatchQueue.main.async { [self] in
+            loadActiveURLIfNeeded()
+        }
     }
 
     @objc private func loadActiveURLIfNeeded() {
@@ -517,10 +546,7 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
             HomeAssistantAPI.authenticatedAPIPromise
         }.then { api -> Promise<Void> in
             func updateWithoutLocation() -> Promise<Void> {
-                return when(fulfilled: [
-                    api.UpdateSensors(trigger: .Manual).asVoid(),
-                    api.updateComplications().asVoid()
-                ])
+                api.UpdateSensors(trigger: .Manual)
             }
 
             if Current.settingsStore.isLocationEnabled(for: UIApplication.shared.applicationState) {
@@ -592,14 +618,12 @@ class WebViewController: UIViewController, WKNavigationDelegate, WKUIDelegate, U
 
     @objc private func updateWebViewSettings() {
         // iOS 14's `pageZoom` property is almost this, but not quite - it breaks the layout as well
-        if #available(iOS 12, *) {
-            // This is quasi-private API that has existed since pre-iOS 10, but the implementation
-            // changed in iOS 12 to be like the +/- zoom buttons in Safari, which scale content without
-            // resizing the scrolling viewport.
-            let viewScale = Current.settingsStore.pageZoom.viewScaleValue
-            Current.Log.info("setting view scale to \(viewScale)")
-            webView.setValue(viewScale, forKey: "viewScale")
-        }
+        // This is quasi-private API that has existed since pre-iOS 10, but the implementation
+        // changed in iOS 12 to be like the +/- zoom buttons in Safari, which scale content without
+        // resizing the scrolling viewport.
+        let viewScale = Current.settingsStore.pageZoom.viewScaleValue
+        Current.Log.info("setting view scale to \(viewScale)")
+        webView.setValue(viewScale, forKey: "viewScale")
     }
 }
 
